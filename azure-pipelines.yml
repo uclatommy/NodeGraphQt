@@ -55,8 +55,8 @@ jobs:
 
 - job: 'Build_and_Deploy'
   pool:
-    vmImage: 'ubuntu-latest'
-  dependsOn: 'Linux_test'
+    vmImage: 'windows-latest'
+  dependsOn: 'Windows_test'
   condition: and(succeeded(), or(eq(variables['Build.SourceBranch'], 'refs/heads/master'), eq(variables['Build.SourceBranch'], 'refs/heads/dev')))
 
   steps:
@@ -107,8 +107,8 @@ jobs:
 
 - job: 'Build_and_Deploy_Mirror'
   pool:
-    vmImage: 'ubuntu-latest'
-  dependsOn: 'Linux_test'
+    vmImage: 'windows-latest'
+  dependsOn: 'Windows_test'
   condition: and(succeeded(), or(eq(variables['Build.SourceBranch'], 'refs/heads/master'), eq(variables['Build.SourceBranch'], 'refs/heads/dev')))
 
   steps:
