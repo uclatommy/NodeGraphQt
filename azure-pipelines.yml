@@ -1,0 +1,153 @@
+# Python package
+# Create and test a Python package on multiple Python versions.
+# Add steps that analyze code, save the dist with the build record, publish to a PyPI-compatible index, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/python
+
+trigger:
+- dev
+- master
+- feature/*
+- release/*
+- hotfix/*
+
+jobs:
+- job: 'Linux_test'
+  pool:
+    vmImage: 'ubuntu-latest'
+  strategy:
+    matrix:
+      Python37:
+        python.version: '3.7'
+      Python38:
+        python.version: '3.8'
+      Python39:
+        python.version: '3.9'
+
+  steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '$(python.version)'
+    displayName: 'Use Python $(python.version)'
+
+  - script: |
+      python -m pip install --upgrade pip
+      pip install poetry
+      poetry config http-basic.PL_IDSP idsp %ADO_PAT%
+      poetry install
+    displayName: 'Install dependencies'
+    env:
+      ADO_PAT: $(ADO_PAT)
+
+  - script: |
+      poetry run pytest --junitxml=junit/test-results.xml --cov=. --cov-report=xml --cov-report=html
+    displayName: 'Test project'
+
+  - task: PublishTestResults@2
+    condition: succeededOrFailed()
+    inputs:
+      testResultsFiles: '**/test-*.xml'
+      testRunTitle: 'Publish test results for Python $(python.version)'
+
+  - task: PublishCodeCoverageResults@1
+    inputs:
+      codeCoverageTool: Cobertura
+      summaryFileLocation: '$(System.DefaultWorkingDirectory)/**/coverage.xml'
+
+- job: 'Build_and_Deploy'
+  pool:
+    vmImage: 'ubuntu-latest'
+  dependsOn: 'Linux_test'
+  condition: and(succeeded(), or(eq(variables['Build.SourceBranch'], 'refs/heads/master'), eq(variables['Build.SourceBranch'], 'refs/heads/dev')))
+
+  steps:
+  - checkout: self
+    persistCredentials: true
+
+  - task: gitversion/setup@0
+    displayName: 'Install GitTools'
+    inputs:
+      versionSpec: '5.x'
+
+  - task: gitversion/execute@0
+    displayName: 'Calculate SemVer'
+
+  - script: |
+      python -m pip install --upgrade pip
+      pip install poetry
+      poetry config http-basic.PL_IDSP idsp %ADO_PAT%
+      poetry install
+      poetry version $(GitVersion.SemVer)
+      poetry build
+    displayName: 'Package project'
+    env:
+      ADO_PAT: $(ADO_PAT)
+
+  - task: CmdLine@2
+    displayName: Init git global config
+    inputs:
+      script: |
+        git config --global user.email "thomas.chen@pacificlife.com"
+        git config --global user.name "Azure Pipeline"
+
+  - task: CmdLine@2
+    displayName: Create Git tag for current version
+    inputs:
+      script: |
+        git tag -a $(GitVersion.SemVer) -m "Azure Pipeline: tagged version $(GitVersion.SemVer)"
+        git push origin $(GitVersion.SemVer)
+
+  - task: TwineAuthenticate@1
+    displayName: 'Twine authenticate'
+    inputs:
+      artifactFeed: PL_IDSP
+
+  - script: |
+      poetry run twine upload -r PL_IDSP --config-file $(PYPIRC_PATH) dist/*.whl
+    displayName: 'Publish project to Organization Feed'
+
+- job: 'Build_and_Deploy_Mirror'
+  pool:
+    vmImage: 'ubuntu-latest'
+  dependsOn: 'Linux_test'
+  condition: and(succeeded(), or(eq(variables['Build.SourceBranch'], 'refs/heads/master'), eq(variables['Build.SourceBranch'], 'refs/heads/dev')))
+
+  steps:
+  - checkout: self
+    persistCredentials: true
+
+  - task: gitversion/setup@0
+    displayName: 'Install GitTools'
+    inputs:
+      versionSpec: '5.x'
+
+  - task: gitversion/execute@0
+    displayName: 'Calculate SemVer'
+
+  - script: |
+      python -m pip install --upgrade pip
+      pip install poetry
+      poetry config repositories.PL-IDSP https://plcorp.pkgs.visualstudio.com/ID-Special-Projects/_packaging/PL-IDSP/pypi/simple/
+      poetry config http-basic.PL-IDSP idsp %ADO_PAT%
+      poetry install
+      poetry version $(GitVersion.SemVer)
+      poetry build
+    displayName: 'Package project'
+    env:
+      ADO_PAT: $(ADO_PAT)
+
+  - task: CmdLine@2
+    displayName: Init git global config
+    inputs:
+      script: |
+        git config --global user.email "thomas.chen@pacificlife.com"
+        git config --global user.name "Azure Pipeline"
+
+  - task: TwineAuthenticate@1
+    displayName: 'Twine authenticate'
+    inputs:
+      artifactFeed: ID-Special-Projects/PL-IDSP
+
+  - script: |
+      poetry run twine upload -r PL-IDSP --config-file $(PYPIRC_PATH) dist/*.whl
+    displayName: 'Publish project to Project Feed'
+
