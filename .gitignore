@@ -18,7 +18,5 @@ api
 dist
 build
 
-tests/*
-
 *.egg-info
 *.json
